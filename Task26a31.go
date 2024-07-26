@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"sync"
@@ -21,13 +22,18 @@ func filterNegative(done <-chan struct{}, input <-chan int) <-chan int {
 		for {
 			select {
 			case <-done:
+				log.Println("filterNegative: получен сигнал завершения")
 				return
 			case i, isChannelOpen := <-input:
 				if !isChannelOpen {
+					log.Println("filterNegative: входной канал закрыт")
 					return
 				}
 				if i >= 0 {
+					log.Println("filterNegative: передача значения", i)
 					output <- i
+				} else {
+					log.Println("filterNegative: отсеивание значения", i)
 				}
 			}
 		}
@@ -42,13 +48,18 @@ func filterNonMultipleOfThree(done <-chan struct{}, input <-chan int) <-chan int
 		for {
 			select {
 			case <-done:
+				log.Println("filterNonMultipleOfThree: получен сигнал завершения")
 				return
 			case i, isChannelOpen := <-input:
 				if !isChannelOpen {
+					log.Println("filterNonMultipleOfThree: входной канал закрыт")
 					return
 				}
 				if i != 0 && i%3 == 0 {
+					log.Println("filterNonMultipleOfThree: передача значения", i)
 					output <- i
+				} else {
+					log.Println("filterNonMultipleOfThree: отсеивание значения", i)
 				}
 			}
 		}
@@ -79,11 +90,13 @@ func (rb *RingBuffer) Push(val int) bool {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 	if rb.count == rb.maxSize {
+		log.Println("RingBuffer: буфер полон, невозможно добавить значение", val)
 		return false
 	}
 	rb.data[rb.nextIn] = val
 	rb.nextIn = (rb.nextIn + 1) % rb.maxSize
 	rb.count++
+	log.Println("RingBuffer: добавлено значение", val)
 	return true
 }
 
@@ -93,6 +106,7 @@ func (rb *RingBuffer) Pop() int {
 	val := rb.data[rb.nextOut]
 	rb.nextOut = (rb.nextOut + 1) % rb.maxSize
 	rb.count--
+	log.Println("RingBuffer: извлечено значение", val)
 	return val
 }
 
@@ -110,14 +124,16 @@ func dataSource(done chan<- struct{}) <-chan int {
 		for scanner.Scan() {
 			input := scanner.Text()
 			if input == "exit" {
+				log.Println("dataSource: получена команда выхода")
 				close(done)
 				return
 			}
 			num, err := strconv.Atoi(input)
 			if err == nil {
+				log.Println("dataSource: получено значение", num)
 				output <- num
 			} else {
-				fmt.Println("Введено нечисловое значение, игнорируется:", input)
+				log.Println("dataSource: игнорируется нечисловой ввод", input)
 			}
 		}
 	}()
@@ -132,13 +148,15 @@ func dataConsumer(done <-chan struct{}, input <-chan int, bufferSize int, interv
 	for {
 		select {
 		case <-done:
+			log.Println("dataConsumer: получен сигнал завершения")
 			return
 		case val, isOpen := <-input:
 			if !isOpen {
+				log.Println("dataConsumer: входной канал закрыт")
 				return
 			}
 			if !buffer.Push(val) {
-				fmt.Println("Буфер переполнен, значение игнорируется:", val)
+				log.Println("dataConsumer: буфер полон, значение игнорируется", val)
 			}
 		case <-ticker.C:
 			for buffer.Count() > 0 {
@@ -153,5 +171,5 @@ func main() {
 	pipeline := filterNonMultipleOfThree(done, filterNegative(done, dataSource(done)))
 	go dataConsumer(done, pipeline, BufferSize, Interval)
 	<-done
-	fmt.Println("Программа завершила работу.")
+	log.Println("main: программа завершила работу")
 }
